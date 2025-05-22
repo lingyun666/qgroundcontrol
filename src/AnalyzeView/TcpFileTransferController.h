@@ -57,6 +57,9 @@ class TcpFileTransferController : public QObject
     Q_PROPERTY(QList<QObject*> files READ files NOTIFY filesChanged)
     Q_PROPERTY(bool downloading READ downloading NOTIFY downloadingChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
+    Q_PROPERTY(QString currentDownloadFile READ currentDownloadFile NOTIFY currentDownloadFileChanged)
+    Q_PROPERTY(int overallProgress READ overallProgress NOTIFY overallProgressChanged)
 
 public:
     explicit TcpFileTransferController(QObject *parent = nullptr);
@@ -73,6 +76,9 @@ public:
     QList<QObject*> files() const { return m_files; }
     bool downloading() const { return m_downloading; }
     QString errorMessage() const { return m_errorMessage; }
+    QString statusMessage() const { return m_statusMessage; }
+    QString currentDownloadFile() const { return m_currentDownloadFile; }
+    int overallProgress() const { return m_overallProgress; }
 
     Q_INVOKABLE void connect();
     Q_INVOKABLE void disconnect();
@@ -81,6 +87,7 @@ public:
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE void selectAll();
     Q_INVOKABLE void clearError();
+    Q_INVOKABLE bool openDownloadFolder();
 
 signals:
     void connectedChanged(bool connected);
@@ -90,6 +97,9 @@ signals:
     void filesChanged();
     void downloadingChanged(bool downloading);
     void errorMessageChanged(const QString &message);
+    void statusMessageChanged(const QString &message);
+    void currentDownloadFileChanged(const QString &fileName);
+    void overallProgressChanged(int progress);
 
 private slots:
     void onConnectionStateChanged(bool connected);
@@ -101,6 +111,8 @@ private slots:
 private:
     void clearFiles();
     void setErrorMessage(const QString &message);
+    void setStatusMessage(const QString &message);
+    void updateOverallProgress();
     FileInfo* findFileByName(const QString &fileName);
 
     TcpFileClient *m_client;
@@ -110,6 +122,11 @@ private:
     QList<QObject*> m_files;
     bool m_downloading;
     QString m_errorMessage;
+    QString m_statusMessage;
+    QString m_currentDownloadFile;
+    int m_overallProgress;
+    int m_totalFilesToDownload;
+    int m_filesDownloaded;
 
     static const QString DEFAULT_SERVER_ADDRESS;
     static const int DEFAULT_SERVER_PORT = 8000;

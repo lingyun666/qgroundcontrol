@@ -328,8 +328,8 @@ AnalyzePage {
                                     anchors.fill: parent
                                     anchors.margins: ScreenTools.defaultFontPixelWidth
                                     text: controller.downloading ? 
-                                          qsTr("正在下载文件...") : 
-                                          (controller.connected ? qsTr("已连接到服务器，等待下载命令") : qsTr("未连接到服务器"))
+                                          qsTr("正在下载文件: ") + controller.currentDownloadFile + " (" + controller.overallProgress + "%)": 
+                                          controller.statusMessage
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
@@ -370,10 +370,8 @@ AnalyzePage {
                                 QGCButton {
                                     text: qsTr("打开目录")
                                     Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
-                                    // 注意：此功能需要在后端实现，目前仅作为UI占位
                                     onClicked: {
-                                        // 这里需要调用后端方法打开目录，但QGC可能不支持此功能
-                                        console.log("打开目录:", controller.selectedFolder)
+                                        controller.openDownloadFolder()
                                     }
                                 }
                             }
@@ -419,11 +417,12 @@ AnalyzePage {
                                         id: debugText
                                         width: parent.width
                                         wrapMode: Text.WordWrap
-                                        text: controller.errorMessage ? 
-                                              controller.errorMessage : 
-                                              qsTr("连接状态: ") + (controller.connected ? qsTr("已连接") : qsTr("未连接")) + "\n" +
+                                        text: qsTr("连接状态: ") + (controller.connected ? qsTr("已连接") : qsTr("未连接")) + "\n" +
                                               qsTr("服务器地址: ") + controller.serverAddress + ":" + controller.serverPort + "\n" +
-                                              qsTr("保存目录: ") + controller.selectedFolder
+                                              qsTr("保存目录: ") + controller.selectedFolder + "\n" +
+                                              (controller.downloading ? 
+                                                qsTr("正在下载: ") + controller.currentDownloadFile + " (" + controller.overallProgress + "%)" :
+                                                qsTr("状态: ") + controller.statusMessage)
                                     }
                                 }
                             }

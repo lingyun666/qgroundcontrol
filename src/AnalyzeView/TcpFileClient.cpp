@@ -1,15 +1,15 @@
 #include "TcpFileClient.h"
-#include <QJsonObject>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QJsonArray>
 #include <QFileInfo>
 #include <QDebug>
 #include <QDir>
 #include <QDataStream>
 
-// 定义命令常量
+// 命令常量定义
 const QByteArray TcpFileClient::CMD_LIST = "LIST";
-const QByteArray TcpFileClient::CMD_GET = "GET";
+const QByteArray TcpFileClient::CMD_GET = "GET ";
 
 TcpFileClient::TcpFileClient(QObject *parent)
     : QObject(parent)
@@ -20,68 +20,77 @@ TcpFileClient::TcpFileClient(QObject *parent)
     , m_receivingHeader(false)
     , m_receivingFileList(false)
 {
-    // 连接信号和槽
+    // 连接socket信号
     connect(m_socket, &QTcpSocket::connected, this, &TcpFileClient::onConnected);
     connect(m_socket, &QTcpSocket::disconnected, this, &TcpFileClient::onDisconnected);
     connect(m_socket, &QTcpSocket::readyRead, this, &TcpFileClient::onReadyRead);
     connect(m_socket, &QTcpSocket::bytesWritten, this, &TcpFileClient::onBytesWritten);
-    connect(m_socket, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::errorOccurred), 
+    connect(m_socket, static_cast<void (QTcpSocket::*)(QAbstractSocket::SocketError)>(&QTcpSocket::errorOccurred), 
             this, &TcpFileClient::onError);
+    
+    qDebug() << "TCP文件客户端初始化完成";
 }
 
 TcpFileClient::~TcpFileClient()
 {
     disconnectFromServer();
+    
+    if (m_file) {
+        m_file->close();
+        delete m_file;
+        m_file = nullptr;
+    }
+    
+    delete m_socket;
 }
 
 bool TcpFileClient::connectToServer(const QString &host, quint16 port)
 {
-    qDebug() << "尝试连接到服务器:" << host << ", 端口:" << port;
-    
     if (m_socket->state() == QAbstractSocket::ConnectedState) {
-        qDebug() << "已经连接到服务器，先断开连接";
-        m_socket->disconnectFromHost();
-        m_socket->waitForDisconnected();
+        qDebug() << "已经连接到服务器";
+        return true;
     }
     
-    // 连接服务器
+    if (m_socket->state() != QAbstractSocket::UnconnectedState) {
+        qDebug() << "正在连接或关闭中，请稍后重试";
+        return false;
+    }
+    
+    qDebug() << "连接到服务器:" << host << ":" << port;
     m_socket->connectToHost(host, port);
+    
+    // 等待连接完成
+    if (!m_socket->waitForConnected(5000)) {
+        emit error("连接服务器超时");
+        return false;
+    }
+    
     return true;
 }
 
 void TcpFileClient::disconnectFromServer()
 {
     if (m_socket->state() != QAbstractSocket::UnconnectedState) {
+        qDebug() << "断开与服务器的连接";
         m_socket->disconnectFromHost();
-        
-        // 如果socket状态不是立即断开，则等待
         if (m_socket->state() != QAbstractSocket::UnconnectedState) {
             m_socket->waitForDisconnected(1000);
         }
-    }
-    
-    // 清理文件资源
-    if (m_file) {
-        m_file->close();
-        delete m_file;
-        m_file = nullptr;
     }
 }
 
 void TcpFileClient::requestFileList()
 {
-    qDebug() << "请求服务器文件列表, 当前连接状态:" << (m_socket->state() == QAbstractSocket::ConnectedState ? "已连接" : "未连接");
-    
     if (m_socket->state() != QAbstractSocket::ConnectedState) {
         emit error("未连接到服务器");
         return;
     }
     
-    // 清空文件列表缓冲区
-    m_fileListBuffer.clear();
+    qDebug() << "请求文件列表";
     m_receivingFileList = true;
+    m_fileListBuffer.clear();
     
-    // 发送请求文件列表命令
+    // 发送列表请求命令
     m_socket->write(CMD_LIST);
 }
 
@@ -91,71 +100,41 @@ bool TcpFileClient::downloadFile(const QString &fileName, const QString &savePat
         emit error("未连接到服务器");
         return false;
     }
-
-    // 检查是否已有下载中的文件
+    
     if (m_file) {
-        emit error("已有文件正在下载中");
+        emit error("已有下载任务在进行中");
         return false;
     }
-
-    // 确保保存目录存在
-    QFileInfo fileInfo(savePath);
-    QDir saveDir = fileInfo.dir();
     
-    // 记录详细日志
-    qDebug() << "尝试下载文件: " << fileName << " 到路径: " << savePath;
-    qDebug() << "目录信息: " << saveDir.path() << ", 存在状态: " << saveDir.exists();
-    
-    if (!saveDir.exists()) {
-        qDebug() << "尝试创建目录: " << saveDir.path();
-        if (!saveDir.mkpath(".")) {
-            QString errorMsg = QString("无法创建目录: %1").arg(saveDir.path());
-            qDebug() << errorMsg;
-            emit error(errorMsg);
+    // 准备保存文件
+    QDir dir(savePath);
+    if (!dir.exists()) {
+        if (!dir.mkpath(".")) {
+            emit error(QString("无法创建目录: %1").arg(savePath));
             return false;
         }
     }
-
-    // 创建完整的保存路径
-    QString fullPath = savePath;
-    if (!savePath.endsWith('/')) {
-        fullPath += '/';
-    }
-    fullPath += fileName;
-    qDebug() << "文件将保存至: " << fullPath;
     
-    m_file = new QFile(fullPath);
+    QString filePath = savePath + "/" + fileName;
+    m_file = new QFile(filePath);
     if (!m_file->open(QIODevice::WriteOnly)) {
-        QString errorMsg = QString("无法创建文件: %1 (错误: %2)").arg(fullPath, m_file->errorString());
-        qDebug() << errorMsg;
-        emit error(errorMsg);
+        emit error(QString("无法打开文件进行写入: %1").arg(filePath));
         delete m_file;
         m_file = nullptr;
         return false;
     }
-
-    // 初始化变量
+    
+    qDebug() << "开始下载文件:" << fileName << "保存到:" << filePath;
     m_currentFileName = fileName;
     m_fileSize = 0;
     m_bytesReceived = 0;
     m_receivingHeader = true;
     m_headerBuffer.clear();
-
-    // 发送下载文件的命令
-    QByteArray command = CMD_GET + " " + fileName.toUtf8();
-    qint64 bytesWritten = m_socket->write(command);
     
-    if (bytesWritten <= 0) {
-        QString errorMsg = QString("发送下载命令失败: %1").arg(m_socket->errorString());
-        qDebug() << errorMsg;
-        emit error(errorMsg);
-        m_file->close();
-        delete m_file;
-        m_file = nullptr;
-        return false;
-    }
+    // 发送下载请求命令
+    QByteArray command = CMD_GET + fileName.toUtf8();
+    m_socket->write(command);
     
-    qDebug() << "发送下载命令: " << command;
     return true;
 }
 
@@ -166,90 +145,66 @@ bool TcpFileClient::isConnected() const
 
 void TcpFileClient::onConnected()
 {
-    qDebug() << "已连接到服务器:" << m_socket->peerAddress().toString() << ":" << m_socket->peerPort();
+    qDebug() << "已连接到服务器";
     emit connectionStateChanged(true);
 }
 
 void TcpFileClient::onDisconnected()
 {
-    qDebug() << "与服务器断开连接";
+    qDebug() << "已断开与服务器的连接";
     
-    // 清理资源
+    // 如果有下载任务，关闭文件
     if (m_file) {
-        // 如果正在下载文件但未完成，发出错误信号
-        if (m_bytesReceived < m_fileSize) {
-            emit error(QString("下载中断: %1 (已接收 %2/%3 字节)")
-                       .arg(m_currentFileName)
-                       .arg(m_bytesReceived)
-                       .arg(m_fileSize));
-        }
-        
         m_file->close();
         delete m_file;
         m_file = nullptr;
-        m_currentFileName.clear();
-        m_fileSize = 0;
-        m_bytesReceived = 0;
     }
-    
-    // 清理其它缓冲区
-    m_headerBuffer.clear();
-    m_fileListBuffer.clear();
-    m_receivingHeader = false;
-    m_receivingFileList = false;
     
     emit connectionStateChanged(false);
 }
 
 void TcpFileClient::onReadyRead()
 {
-    while (m_socket->bytesAvailable() > 0) {
-        // 处理文件列表
-        if (m_receivingFileList) {
-            QByteArray data = m_socket->readAll();
-            m_fileListBuffer.append(data);
-            
-            // 检查是否接收到完整的文件列表
-            if (m_fileListBuffer.contains("\r\n\r\n")) {
-                processFileList(m_fileListBuffer);
-                m_fileListBuffer.clear();
-                m_receivingFileList = false;
-            }
-            continue;
-        }
+    if (m_receivingFileList) {
+        // 处理文件列表响应
+        m_fileListBuffer.append(m_socket->readAll());
         
-        // 处理文件头信息
-        if (m_receivingHeader) {
-            QByteArray data = m_socket->read(HEADER_SIZE - m_headerBuffer.size());
-            m_headerBuffer.append(data);
-            
-            if (m_headerBuffer.size() >= HEADER_SIZE) {
-                processFileHeader(m_headerBuffer);
-                m_headerBuffer.clear();
-                m_receivingHeader = false;
-            }
-            continue;
+        // 检查是否接收到完整的数据
+        // 注意：这里不再自动调用processFileList并重置m_receivingFileList标志
+        // 而是保留接收状态，直到接收完全部数据
+        if (m_socket->bytesAvailable() <= 0) {
+            processFileList(m_fileListBuffer);
+            m_receivingFileList = false;
         }
+        return;
+    }
+    
+    if (m_receivingHeader) {
+        // 接收文件头信息，格式为JSON
+        m_headerBuffer.append(m_socket->readAll());
         
-        // 处理文件数据
-        if (m_file) {
-            // 计算要读取的字节数
-            qint64 bytesToRead = qMin(m_socket->bytesAvailable(), m_fileSize - m_bytesReceived);
+        // 查找头部结束标志
+        int endPos = m_headerBuffer.indexOf("\r\n\r\n");
+        if (endPos != -1) {
+            // 处理头部信息
+            QByteArray header = m_headerBuffer.left(endPos);
+            processFileHeader(header);
             
-            if (bytesToRead > 0) {
-                QByteArray data = m_socket->read(bytesToRead);
-                m_bytesReceived += data.size();
-                
-                // 写入文件
-                if (m_file->write(data) != data.size()) {
-                    emit error(QString("写入文件失败: %1").arg(m_file->errorString()));
-                    finishFileDownload();
-                    return;
-                }
+            // 保存剩余的数据
+            QByteArray remainingData = m_headerBuffer.mid(endPos + 4); // 4是\r\n\r\n的长度
+            m_receivingHeader = false;
+            m_headerBuffer.clear();
+            
+            // 如果有剩余数据，处理文件内容
+            if (!remainingData.isEmpty()) {
+                m_file->write(remainingData);
+                m_bytesReceived += remainingData.size();
                 
                 // 更新进度
-                int progress = static_cast<int>((static_cast<double>(m_bytesReceived) / m_fileSize) * 100);
-                emit downloadProgress(m_currentFileName, progress);
+                if (m_fileSize > 0) {
+                    int progress = static_cast<int>((m_bytesReceived * 100) / m_fileSize);
+                    emit downloadProgress(m_currentFileName, progress);
+                }
                 
                 // 检查是否下载完成
                 if (m_bytesReceived >= m_fileSize) {
@@ -257,96 +212,245 @@ void TcpFileClient::onReadyRead()
                 }
             }
         }
-    }
-}
-
-void TcpFileClient::processFileHeader(const QByteArray &headerData)
-{
-    QDataStream stream(headerData);
-    stream.setVersion(QDataStream::Qt_5_15);
-    
-    // 读取文件名和大小
-    QString fileName;
-    qint64 fileSize;
-    
-    stream >> fileName >> fileSize;
-    
-    qDebug() << "收到文件头信息: 文件名=" << fileName << ", 大小=" << fileSize << "字节";
-    
-    // 检查文件名匹配
-    if (fileName != m_currentFileName) {
-        emit error(QString("收到错误的文件: %1 (期望: %2)").arg(fileName, m_currentFileName));
-        finishFileDownload();
-        return;
-    }
-    
-    m_fileSize = fileSize;
-    m_bytesReceived = 0;
-}
-
-void TcpFileClient::processFileList(const QByteArray &listData)
-{
-    QList<QPair<QString, qint64>> fileList;
-    
-    // 解析文件列表数据
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(listData, &parseError);
-    
-    if (parseError.error != QJsonParseError::NoError) {
-        emit error(QString("解析文件列表失败: %1").arg(parseError.errorString()));
-        return;
-    }
-    
-    QJsonObject rootObj = doc.object();
-    QJsonArray filesArray = rootObj["files"].toArray();
-    
-    // 构建文件列表
-    for (int i = 0; i < filesArray.size(); i++) {
-        QJsonObject fileObj = filesArray[i].toObject();
-        QString fileName = fileObj["name"].toString();
-        qint64 fileSize = fileObj["size"].toVariant().toLongLong();
+    } else if (m_file) {
+        // 接收文件内容
+        QByteArray data = m_socket->readAll();
+        m_file->write(data);
+        m_bytesReceived += data.size();
         
-        fileList.append(qMakePair(fileName, fileSize));
+        // 更新进度
+        if (m_fileSize > 0) {
+            int progress = static_cast<int>((m_bytesReceived * 100) / m_fileSize);
+            emit downloadProgress(m_currentFileName, progress);
+        }
+        
+        // 检查是否下载完成
+        if (m_bytesReceived >= m_fileSize) {
+            finishFileDownload();
+        }
+    } else {
+        // 未处于任何接收状态，但收到了数据，可能是服务器主动发送的消息
+        // 读取并丢弃数据，避免缓冲区堆积
+        m_socket->readAll();
+        qDebug() << "收到未预期的数据，已丢弃";
     }
-    
-    qDebug() << "收到文件列表, 包含" << fileList.size() << "个文件";
-    emit fileListReceived(fileList);
 }
 
 void TcpFileClient::onBytesWritten(qint64 bytes)
 {
     Q_UNUSED(bytes);
+    // 可以用于跟踪命令发送状态，但目前不需要特殊处理
 }
 
 void TcpFileClient::onError(QAbstractSocket::SocketError socketError)
 {
-    QString errorMessage;
+    QString errorMsg;
+    
     switch (socketError) {
-    case QAbstractSocket::ConnectionRefusedError:
-        errorMessage = "连接被拒绝";
-        break;
-    case QAbstractSocket::RemoteHostClosedError:
-        errorMessage = "远程主机关闭了连接";
-        break;
-    case QAbstractSocket::HostNotFoundError:
-        errorMessage = "未找到主机";
-        break;
-    case QAbstractSocket::SocketAccessError:
-        errorMessage = "套接字访问错误";
-        break;
-    case QAbstractSocket::SocketTimeoutError:
-        errorMessage = "连接超时";
-        break;
-    case QAbstractSocket::NetworkError:
-        errorMessage = "网络错误";
-        break;
-    default:
-        errorMessage = QString("发生网络错误: %1").arg(m_socket->errorString());
-        break;
+        case QAbstractSocket::ConnectionRefusedError:
+            errorMsg = "连接被拒绝";
+            break;
+        case QAbstractSocket::RemoteHostClosedError:
+            errorMsg = "远程主机关闭了连接";
+            break;
+        case QAbstractSocket::HostNotFoundError:
+            errorMsg = "无法找到主机";
+            break;
+        case QAbstractSocket::SocketTimeoutError:
+            errorMsg = "连接超时";
+            break;
+        case QAbstractSocket::NetworkError:
+            errorMsg = "网络错误";
+            break;
+        default:
+            errorMsg = "网络错误: " + m_socket->errorString();
+            break;
     }
     
-    qDebug() << "TCP错误: " << errorMessage;
-    emit error(errorMessage);
+    qDebug() << "Socket错误:" << errorMsg;
+    emit error(errorMsg);
+    
+    // 如果有下载任务，关闭文件
+    if (m_file) {
+        m_file->close();
+        delete m_file;
+        m_file = nullptr;
+    }
+}
+
+void TcpFileClient::processFileHeader(const QByteArray &headerData)
+{
+    qDebug() << "处理文件头信息:" << headerData;
+    
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(headerData, &parseError);
+    
+    if (parseError.error != QJsonParseError::NoError) {
+        qDebug() << "解析JSON头部失败:" << parseError.errorString();
+        
+        // 尝试直接解析简单的头部格式
+        QString headerStr = QString::fromUtf8(headerData);
+        QStringList lines = headerStr.split("\r\n");
+        
+        for (const QString &line : lines) {
+            if (line.startsWith("Content-Length:")) {
+                bool ok;
+                m_fileSize = line.mid(15).trimmed().toLongLong(&ok);
+                if (ok) {
+                    qDebug() << "文件大小:" << m_fileSize;
+                }
+                break;
+            }
+        }
+        
+        return;
+    }
+    
+    QJsonObject headerObj = doc.object();
+    
+    // 获取文件大小
+    if (headerObj.contains("size") || headerObj.contains("fileSize") || headerObj.contains("contentLength")) {
+        if (headerObj.contains("size")) {
+            m_fileSize = headerObj["size"].toVariant().toLongLong();
+        } else if (headerObj.contains("fileSize")) {
+            m_fileSize = headerObj["fileSize"].toVariant().toLongLong();
+        } else {
+            m_fileSize = headerObj["contentLength"].toVariant().toLongLong();
+        }
+        qDebug() << "文件大小:" << m_fileSize;
+    } else {
+        qDebug() << "警告: 头部中未找到文件大小信息";
+        m_fileSize = 0;
+    }
+}
+
+void TcpFileClient::processFileList(const QByteArray &listData)
+{
+    qDebug() << "处理文件列表数据:" << listData;
+    
+    QList<QPair<QString, qint64>> fileList;
+    
+    // 首先尝试解析为JSON格式
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(listData, &parseError);
+    
+    if (parseError.error == QJsonParseError::NoError) {
+        qDebug() << "成功解析为JSON格式";
+        if (doc.isArray()) {
+            QJsonArray filesArray = doc.array();
+            qDebug() << "JSON是数组，包含" << filesArray.size() << "个元素";
+            
+            for (const QJsonValue &value : filesArray) {
+                if (value.isObject()) {
+                    QJsonObject fileObj = value.toObject();
+                    QString name;
+                    qint64 size = 0;
+                    
+                    if (fileObj.contains("name")) {
+                        name = fileObj["name"].toString();
+                    } else if (fileObj.contains("fileName")) {
+                        name = fileObj["fileName"].toString();
+                    }
+                    
+                    if (fileObj.contains("size")) {
+                        size = fileObj["size"].toVariant().toLongLong();
+                    } else if (fileObj.contains("fileSize")) {
+                        size = fileObj["fileSize"].toVariant().toLongLong();
+                    }
+                    
+                    if (!name.isEmpty()) {
+                        qDebug() << "添加文件:" << name << "大小:" << size;
+                        fileList.append(qMakePair(name, size));
+                    }
+                }
+            }
+        } else if (doc.isObject()) {
+            // 可能是包含files数组的对象
+            QJsonObject rootObj = doc.object();
+            qDebug() << "JSON是对象，键:" << rootObj.keys();
+            
+            if (rootObj.contains("files") && rootObj["files"].isArray()) {
+                QJsonArray filesArray = rootObj["files"].toArray();
+                qDebug() << "files数组包含" << filesArray.size() << "个元素";
+                
+                for (const QJsonValue &value : filesArray) {
+                    if (value.isObject()) {
+                        QJsonObject fileObj = value.toObject();
+                        QString name;
+                        qint64 size = 0;
+                        
+                        if (fileObj.contains("name")) {
+                            name = fileObj["name"].toString();
+                        } else if (fileObj.contains("fileName")) {
+                            name = fileObj["fileName"].toString();
+                        }
+                        
+                        if (fileObj.contains("size")) {
+                            size = fileObj["size"].toVariant().toLongLong();
+                        } else if (fileObj.contains("fileSize")) {
+                            size = fileObj["fileSize"].toVariant().toLongLong();
+                        }
+                        
+                        if (!name.isEmpty()) {
+                            qDebug() << "添加文件:" << name << "大小:" << size;
+                            fileList.append(qMakePair(name, size));
+                        }
+                    } else if (value.isString()) {
+                        // 简单字符串列表
+                        QString name = value.toString();
+                        qDebug() << "添加文件(字符串):" << name;
+                        fileList.append(qMakePair(name, qint64(0)));
+                    }
+                }
+            }
+        }
+    } else {
+        qDebug() << "JSON解析失败:" << parseError.errorString() << "，尝试解析为文本格式";
+        // 尝试解析为简单的文本格式，每行一个文件
+        QString listStr = QString::fromUtf8(listData);
+        QStringList lines = listStr.split("\n", Qt::SkipEmptyParts);
+        
+        qDebug() << "文本格式，包含" << lines.size() << "行";
+        
+        for (const QString &line : lines) {
+            QString trimmedLine = line.trimmed();
+            if (trimmedLine.isEmpty()) {
+                continue;
+            }
+            
+            // 尝试解析格式: 文件名|大小
+            int separatorPos = trimmedLine.lastIndexOf('|');
+            if (separatorPos > 0) {
+                QString name = trimmedLine.left(separatorPos).trimmed();
+                bool ok;
+                qint64 size = trimmedLine.mid(separatorPos + 1).trimmed().toLongLong(&ok);
+                
+                if (!name.isEmpty()) {
+                    qDebug() << "添加文件(带分隔符):" << name << "大小:" << size;
+                    fileList.append(qMakePair(name, ok ? size : 0));
+                }
+            } else {
+                // 仅有文件名
+                qDebug() << "添加文件(仅名称):" << trimmedLine;
+                fileList.append(qMakePair(trimmedLine, qint64(0)));
+            }
+        }
+    }
+    
+    qDebug() << "解析到" << fileList.size() << "个文件";
+    
+    // 输出原始数据的十六进制和ASCII表示，用于调试
+    QString hexDump;
+    QString asciiDump;
+    for (int i = 0; i < qMin(listData.size(), 200); ++i) {
+        unsigned char c = static_cast<unsigned char>(listData[i]);
+        hexDump += QString("%1 ").arg(c, 2, 16, QChar('0'));
+        asciiDump += (c >= 32 && c <= 126) ? QChar(c) : '.';
+    }
+    qDebug() << "原始数据前200字节(Hex):" << hexDump;
+    qDebug() << "原始数据前200字节(ASCII):" << asciiDump;
+    
+    emit fileListReceived(fileList);
 }
 
 void TcpFileClient::finishFileDownload()
@@ -355,17 +459,22 @@ void TcpFileClient::finishFileDownload()
         return;
     }
     
-    QString fileName = m_currentFileName;
-    qint64 fileSize = m_fileSize;
-    
-    // 关闭文件并清理资源
+    m_file->flush();
     m_file->close();
+    
+    qint64 actualSize = m_file->size();
+    
+    if (m_fileSize > 0 && actualSize != m_fileSize) {
+        qDebug() << "警告: 文件大小不匹配, 预期:" << m_fileSize << "实际:" << actualSize;
+    }
+    
+    QString fileName = m_currentFileName;
+    qint64 size = actualSize;
+    
     delete m_file;
     m_file = nullptr;
     m_currentFileName.clear();
-    m_fileSize = 0;
-    m_bytesReceived = 0;
     
-    qDebug() << "文件下载完成: " << fileName << ", 大小: " << fileSize << "字节";
-    emit fileReceived(fileName, fileSize);
+    qDebug() << "文件下载完成:" << fileName << "大小:" << size;
+    emit fileReceived(fileName, size);
 } 
