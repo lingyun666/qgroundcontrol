@@ -213,6 +213,7 @@ AnalyzePage {
                                         id: selectAllCheckBox
                                         enabled: controller.files.length > 0 && !controller.downloading
                                         Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 3
+                                        checked: false
                                         onClicked: {
                                             if (checked) {
                                                 controller.selectAll()
@@ -291,9 +292,14 @@ AnalyzePage {
                                             spacing: 0
                                             
                                             QGCCheckBox {
+                                                id: fileCheckBox
                                                 enabled: !controller.downloading
                                                 checked: modelData.selected
-                                                onClicked: modelData.selected = checked
+                                                onCheckedChanged: {
+                                                    if (checked !== modelData.selected) {
+                                                        modelData.selected = checked
+                                                    }
+                                                }
                                                 Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 3
                                             }
                                             

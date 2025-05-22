@@ -187,6 +187,14 @@ void TcpFileTransferController::refresh()
     m_downloading = false;
     emit downloadingChanged(false);
     
+    // 清空当前下载文件
+    m_currentDownloadFile = "";
+    emit currentDownloadFileChanged(m_currentDownloadFile);
+    
+    // 重置进度
+    m_overallProgress = 0;
+    emit overallProgressChanged(m_overallProgress);
+    
     // 请求文件列表，注意此操作是异步的
     m_client->requestFileList();
 }
@@ -214,6 +222,9 @@ void TcpFileTransferController::download()
         FileInfo *fileInfo = qobject_cast<FileInfo*>(obj);
         if (fileInfo && fileInfo->selected()) {
             m_totalFilesToDownload++;
+            // 重置状态，确保文件为"就绪"状态
+            fileInfo->setStatus("就绪");
+            fileInfo->setProgress(0);
         }
     }
     
@@ -235,6 +246,7 @@ void TcpFileTransferController::download()
     setStatusMessage(QString("准备下载 %1 个文件...").arg(m_totalFilesToDownload));
     
     // 开始下载第一个选中的文件
+    bool startedDownload = false;
     for (QObject *obj : m_files) {
         FileInfo *fileInfo = qobject_cast<FileInfo*>(obj);
         if (fileInfo && fileInfo->selected()) {
@@ -251,12 +263,17 @@ void TcpFileTransferController::download()
                 emit downloadingChanged(true);
                 fileInfo->setStatus("下载中");
                 setStatusMessage(QString("正在下载文件: %1").arg(fileInfo->name()));
+                startedDownload = true;
                 break;
             } else {
                 fileInfo->setStatus("下载失败");
                 setErrorMessage(QString("无法开始下载文件: %1").arg(fileInfo->name()));
             }
         }
+    }
+    
+    if (!startedDownload) {
+        setErrorMessage("无法开始下载任何文件");
     }
     
     updateOverallProgress();
@@ -289,18 +306,28 @@ void TcpFileTransferController::clearError()
 
 bool TcpFileTransferController::openDownloadFolder()
 {
+    qDebug() << "尝试打开下载目录:" << m_selectedFolder;
+    
     QDir dir(m_selectedFolder);
     if (!dir.exists()) {
         // 尝试创建目录
+        qDebug() << "目录不存在，尝试创建";
         if (!dir.mkpath(".")) {
             setErrorMessage(QString("无法创建目录: %1").arg(m_selectedFolder));
             return false;
         }
     }
     
-    bool success = QDesktopServices::openUrl(QUrl::fromLocalFile(m_selectedFolder));
+    // 使用QDesktopServices打开目录
+    QUrl folderUrl = QUrl::fromLocalFile(m_selectedFolder);
+    qDebug() << "打开目录URL:" << folderUrl.toString();
+    
+    bool success = QDesktopServices::openUrl(folderUrl);
     if (!success) {
         setErrorMessage(QString("无法打开下载目录: %1").arg(m_selectedFolder));
+        qDebug() << "打开目录失败";
+    } else {
+        qDebug() << "成功打开目录";
     }
     
     return success;
@@ -345,6 +372,8 @@ void TcpFileTransferController::onFileListReceived(const QList<QPair<QString, qi
     for (const auto &file : fileList) {
         qDebug() << "添加文件到列表:" << file.first << "大小:" << file.second;
         FileInfo *fileInfo = new FileInfo(file.first, file.second, this);
+        // 确保新添加的文件默认未选中
+        fileInfo->setSelected(false);
         m_files.append(fileInfo);
     }
     
@@ -393,6 +422,8 @@ void TcpFileTransferController::onFileReceived(const QString &fileName, qint64 s
             
             m_currentDownloadFile = nextFile->name();
             emit currentDownloadFileChanged(m_currentDownloadFile);
+            
+            qDebug() << "继续下载下一个文件:" << nextFile->name();
             
             if (m_client->downloadFile(nextFile->name(), m_selectedFolder)) {
                 nextFile->setStatus("下载中");

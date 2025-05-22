@@ -567,4 +567,10 @@ void TcpFileClient::finishFileDownload()
     
     qDebug() << "文件下载完成:" << fileName << "大小:" << size;
     emit fileReceived(fileName, size);
+    
+    // 检查socket连接状态
+    if (m_socket->state() != QAbstractSocket::ConnectedState) {
+        qDebug() << "警告: 下载完成后Socket不再连接状态，尝试恢复连接";
+        emit error("连接已断开，请重新连接");
+    }
 } 
