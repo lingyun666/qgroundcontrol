@@ -125,6 +125,24 @@ Item {
         utmspSliderTrigger:         utmspActTrigger
     }
 
+    // 添加底部工具栏确认对话框
+    FlyViewBottomToolStripConfirm {
+        id:                         bottomToolStripConfirm
+        anchors.margins:            _toolsMargin
+        anchors.top:                parent.top
+        anchors.horizontalCenter:   parent.horizontalCenter
+        z:                          QGroundControl.zOrderTopMost
+    }
+
+    // 添加原点坐标设置对话框
+    FlyViewBottomToolStripSetOrigin {
+        id:                         bottomToolStripSetOrigin
+        anchors.margins:            _toolsMargin
+        anchors.top:                parent.top
+        anchors.horizontalCenter:   parent.horizontalCenter
+        z:                          QGroundControl.zOrderTopMost
+    }
+
     //-- Virtual Joystick
     Loader {
         id:                         virtualJoystickMultiTouch
@@ -191,6 +209,18 @@ Item {
         property real topEdgeLeftInset:     visible ? y + height : 0
         property real leftEdgeTopInset:     visible ? x + width : 0
         property real leftEdgeCenterInset:  leftEdgeTopInset
+    }
+
+    // 底部中央工具栏
+    FlyViewBottomToolStrip {
+        id:                     bottomToolStrip
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeLeftInset
+        anchors.bottom:         parent.bottom
+        z:                      QGroundControl.zOrderWidgets
+        visible:               !QGroundControl.videoManager.fullScreen
+        
+        property real bottomEdgeCenterInset: visible ? height + (ScreenTools.defaultFontPixelWidth * 0.2) : 0
     }
 
     GripperMenu {

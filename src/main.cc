@@ -7,6 +7,7 @@
  *
  ****************************************************************************/
 
+#include "unistd.h"
 #include <QtQuick/QQuickWindow>
 #include <QtWidgets/QApplication>
 

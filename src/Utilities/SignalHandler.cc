@@ -7,6 +7,7 @@
  *
  ****************************************************************************/
 
+#include "unistd.h"
 #include "SignalHandler.h"
 #include "QGCApplication.h"
 #include "QGCLoggingCategory.h"

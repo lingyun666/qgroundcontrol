@@ -17,6 +17,7 @@
  */
 
 #include "QGCApplication.h"
+#include "Vehicle/UdpLink/CustomCommandSender.h"
 
 #include <QtCore/QEvent>
 #include <QtCore/QFile>
@@ -273,6 +274,7 @@ void QGCApplication::init()
     SettingsManager::instance()->init();
 
     LinkManager::registerQmlTypes();
+    qmlRegisterType<CustomCommandSender>("QGroundControl.Controllers", 1, 0, "CustomCommandSender");
     ParameterManager::registerQmlTypes();
     QGroundControlQmlGlobal::registerQmlTypes();
     MissionManager::registerQmlTypes();

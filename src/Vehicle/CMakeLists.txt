@@ -18,6 +18,10 @@ target_sources(${CMAKE_PROJECT_NAME}
         TerrainProtocolHandler.h
         TrajectoryPoints.cc
         TrajectoryPoints.h
+        UdpLink/UdpCommandLink.cpp
+        UdpLink/UdpCommandLink.h
+        UdpLink/CustomCommandSender.cpp
+        UdpLink/CustomCommandSender.h
         Vehicle.cc
         Vehicle.h
         VehicleLinkManager.cc

@@ -227,6 +227,12 @@
         <file alias="QGroundControl/FlightDisplay/FlightDisplayViewVideo.qml">src/FlightDisplay/FlightDisplayViewVideo.qml</file>
         <file alias="QGroundControl/FlightDisplay/FlyView.qml">src/FlightDisplay/FlyView.qml</file>
         <file alias="QGroundControl/FlightDisplay/FlyViewBottomRightRowLayout.qml">src/FlightDisplay/FlyViewBottomRightRowLayout.qml</file>
+        <file alias="QGroundControl/FlightDisplay/FlyViewBottomToolStrip.qml">src/FlightDisplay/FlyViewBottomToolStrip.qml</file>
+        <file alias="QGroundControl/FlightDisplay/FlyViewBottomToolStripButton.qml">src/FlightDisplay/FlyViewBottomToolStripButton.qml</file>
+        <file alias="QGroundControl/FlightDisplay/FlyViewBottomToolStripActiveButton.qml">src/FlightDisplay/FlyViewBottomToolStripActiveButton.qml</file>
+        <file alias="QGroundControl/FlightDisplay/FlyViewBottomToolStripOriginButton.qml">src/FlightDisplay/FlyViewBottomToolStripOriginButton.qml</file>
+        <file alias="QGroundControl/FlightDisplay/FlyViewBottomToolStripConfirm.qml">src/FlightDisplay/FlyViewBottomToolStripConfirm.qml</file>
+        <file alias="QGroundControl/FlightDisplay/FlyViewBottomToolStripSetOrigin.qml">src/FlightDisplay/FlyViewBottomToolStripSetOrigin.qml</file>
         <file alias="QGroundControl/FlightDisplay/FlyViewCustomLayer.qml">src/FlightDisplay/FlyViewCustomLayer.qml</file>
         <file alias="QGroundControl/FlightDisplay/FlyViewInstrumentPanel.qml">src/FlightDisplay/FlyViewInstrumentPanel.qml</file>
         <file alias="QGroundControl/FlightDisplay/FlyViewMap.qml">src/FlightDisplay/FlyViewMap.qml</file>

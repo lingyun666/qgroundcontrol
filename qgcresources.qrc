@@ -46,6 +46,8 @@
         <file alias="SplashScreen">resources/SplashScreen.png</file>
         <file alias="Stop.svg">resources/Stop.svg</file>
         <file alias="takeoff.svg">resources/takeoff.svg</file>
+        <file alias="active.svg">resources/active.svg</file>
+        <file alias="origin.svg">resources/origin.svg</file>
         <file alias="terrain.svg">resources/terrain.svg</file>
         <file alias="TrashDelete.svg">resources/TrashDelete.svg</file>
         <file alias="VehicleMessages.png">resources/VehicleMessages.png</file>
