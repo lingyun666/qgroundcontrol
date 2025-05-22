@@ -11,7 +11,7 @@ class FileInfo : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString name READ name CONSTANT)
-    Q_PROPERTY(QString size READ size CONSTANT)
+    Q_PROPERTY(qint64 size READ size CONSTANT)
     Q_PROPERTY(QString sizeStr READ sizeStr CONSTANT)
     Q_PROPERTY(bool selected READ selected WRITE setSelected NOTIFY selectedChanged)
     Q_PROPERTY(QString status READ status WRITE setStatus NOTIFY statusChanged)
@@ -21,7 +21,7 @@ public:
     explicit FileInfo(const QString &name, qint64 size, QObject *parent = nullptr);
 
     QString name() const { return m_name; }
-    QString size() const { return QString::number(m_size); }
+    qint64 size() const { return m_size; }
     QString sizeStr() const;
     bool selected() const { return m_selected; }
     void setSelected(bool selected);

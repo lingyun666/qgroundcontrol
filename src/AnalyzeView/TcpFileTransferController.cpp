@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QTimer>
 
 // 静态常量定义
 const QString TcpFileTransferController::DEFAULT_SERVER_ADDRESS = "192.168.1.10";
@@ -141,7 +142,25 @@ void TcpFileTransferController::connect()
     qDebug() << "尝试连接到服务器:" << m_serverAddress << ":" << m_serverPort;
     clearError();
     setStatusMessage("正在连接...");
-    m_client->connectToServer(m_serverAddress, m_serverPort);
+    
+    // 断开现有连接
+    if (m_client->isConnected()) {
+        m_client->disconnectFromServer();
+    }
+    
+    // 清空文件列表
+    clearFiles();
+    
+    // 重置状态
+    m_downloading = false;
+    emit downloadingChanged(false);
+    m_currentDownloadFile = "";
+    emit currentDownloadFileChanged(m_currentDownloadFile);
+    
+    // 连接到服务器
+    if (!m_client->connectToServer(m_serverAddress, m_serverPort)) {
+        setErrorMessage("无法连接到服务器");
+    }
 }
 
 void TcpFileTransferController::disconnect()
@@ -295,7 +314,10 @@ void TcpFileTransferController::onConnectionStateChanged(bool connected)
     if (connected) {
         setStatusMessage("已连接到服务器");
         // 自动刷新文件列表
-        refresh();
+        QTimer::singleShot(100, this, [this]() {
+            qDebug() << "连接成功，自动刷新文件列表";
+            refresh();
+        });
     } else {
         setStatusMessage("未连接到服务器");
         m_downloading = false;
@@ -308,26 +330,34 @@ void TcpFileTransferController::onFileListReceived(const QList<QPair<QString, qi
 {
     qDebug() << "收到文件列表, 文件数:" << fileList.size();
     
+    // 清除现有文件列表
     clearFiles();
     
+    // 检查是否有文件
+    if (fileList.isEmpty()) {
+        qDebug() << "服务器返回的文件列表为空";
+        setStatusMessage("服务器上没有可用文件");
+        emit filesChanged(); // 确保UI刷新
+        return;
+    }
+    
+    // 添加新文件到列表
     for (const auto &file : fileList) {
+        qDebug() << "添加文件到列表:" << file.first << "大小:" << file.second;
         FileInfo *fileInfo = new FileInfo(file.first, file.second, this);
         m_files.append(fileInfo);
     }
     
+    // 发出列表变更信号
     emit filesChanged();
     
-    // 确保显示的文件数量准确
-    int fileCount = fileList.size();
+    // 更新状态消息
+    setStatusMessage(QString("获取到 %1 个文件").arg(fileList.size()));
     
-    if (fileCount <= 0) {
-        setStatusMessage("服务器上没有可用文件");
-    } else {
-        setStatusMessage(QString("获取到 %1 个文件").arg(fileCount));
-    }
+    // 清除错误消息
+    clearError();
     
-    // 确保在此处不会断开连接
-    qDebug() << "文件列表处理完成，保持连接";
+    qDebug() << "文件列表处理完成，可用文件数:" << m_files.size();
 }
 
 void TcpFileTransferController::onDownloadProgress(const QString &fileName, int progress)

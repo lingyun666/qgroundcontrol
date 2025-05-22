@@ -340,83 +340,206 @@ void TcpFileClient::processFileHeader(const QByteArray &headerData)
 
 void TcpFileClient::processFileList(const QByteArray &listData)
 {
-    qDebug() << "处理文件列表数据:" << listData.size() << "字节";
+    qDebug() << "处理文件列表数据, 大小:" << listData.size() << "字节";
+    
+    // 调试输出原始数据的前100个字节
+    QString debugData = QString::fromUtf8(listData.left(100));
+    qDebug() << "原始数据前100字节:" << debugData << (listData.size() > 100 ? "..." : "");
     
     QList<QPair<QString, qint64>> fileList;
     
-    // 根据服务器的实现，文件列表是一个JSON对象
+    // 解析为JSON
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(listData, &parseError);
     
     if (parseError.error != QJsonParseError::NoError) {
-        qDebug() << "解析文件列表JSON失败:" << parseError.errorString();
+        qDebug() << "JSON解析失败:" << parseError.errorString() << ", 错误位置:" << parseError.offset;
         emit error("解析文件列表失败");
-        return;
-    }
-    
-    if (!doc.isObject()) {
-        qDebug() << "文件列表不是一个JSON对象";
-        emit error("文件列表格式错误");
-        return;
-    }
-    
-    QJsonObject rootObj = doc.object();
-    
-    // 调试输出完整的JSON结构
-    QString jsonStr = QString::fromUtf8(doc.toJson());
-    qDebug() << "文件列表JSON:" << jsonStr.left(1000) << (jsonStr.length() > 1000 ? "..." : "");
-    
-    // 检查文件计数
-    int fileCount = 0;
-    if (rootObj.contains("count")) {
-        fileCount = rootObj["count"].toInt();
-        qDebug() << "服务器报告的文件数量:" << fileCount;
-    }
-    
-    if (rootObj.contains("files") && rootObj["files"].isArray()) {
-        QJsonArray filesArray = rootObj["files"].toArray();
-        qDebug() << "解析到的文件数组大小:" << filesArray.size();
         
-        for (int i = 0; i < filesArray.size(); i++) {
-            QJsonValue value = filesArray[i];
-            if (!value.isObject()) {
-                qDebug() << "跳过非对象元素:" << i;
-                continue;
-            }
+        // 尝试简单文本格式解析
+        QString text = QString::fromUtf8(listData);
+        QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+        qDebug() << "尝试文本格式解析，行数:" << lines.size();
+        
+        for (const QString &line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.isEmpty()) continue;
             
-            QJsonObject fileObj = value.toObject();
-            QString name;
-            qint64 size = 0;
-            
-            if (fileObj.contains("name")) {
-                name = fileObj["name"].toString();
-            } else {
-                qDebug() << "文件对象缺少name字段:" << fileObj;
-                continue;
-            }
-            
-            if (fileObj.contains("size")) {
-                QString sizeStr = fileObj["size"].toString();
+            // 可能的格式: 文件名|大小
+            int separatorPos = trimmed.lastIndexOf('|');
+            if (separatorPos > 0) {
+                QString name = trimmed.left(separatorPos).trimmed();
                 bool ok;
-                size = sizeStr.toLongLong(&ok);
-                if (!ok) {
-                    qDebug() << "无法解析文件大小:" << sizeStr;
-                    size = 0;
+                qint64 size = trimmed.mid(separatorPos + 1).trimmed().toLongLong(&ok);
+                if (!name.isEmpty()) {
+                    qDebug() << "添加文件:" << name << "大小:" << size;
+                    fileList.append(qMakePair(name, ok ? size : 0));
                 }
-            }
-            
-            if (!name.isEmpty()) {
-                qDebug() << "添加文件:" << name << "大小:" << size;
-                fileList.append(qMakePair(name, size));
+            } else {
+                // 只有文件名
+                qDebug() << "添加文件(仅名称):" << trimmed;
+                fileList.append(qMakePair(trimmed, qint64(0)));
             }
         }
-    } else {
-        qDebug() << "文件列表JSON中没有找到files数组";
-        emit error("文件列表格式错误");
-        return;
+        
+        if (!fileList.isEmpty()) {
+            qDebug() << "通过文本格式解析成功, 文件数:" << fileList.size();
+            emit fileListReceived(fileList);
+            return;
+        }
+    }
+    
+    if (doc.isObject()) {
+        QJsonObject rootObj = doc.object();
+        qDebug() << "JSON是对象，键:" << rootObj.keys().join(", ");
+        
+        // 服务器格式: {"files": [...], "count": n}
+        if (rootObj.contains("files") && rootObj["files"].isArray()) {
+            QJsonArray filesArray = rootObj["files"].toArray();
+            qDebug() << "files数组包含" << filesArray.size() << "个元素";
+            
+            for (int i = 0; i < filesArray.size(); ++i) {
+                QJsonValue value = filesArray[i];
+                if (value.isObject()) {
+                    QJsonObject fileObj = value.toObject();
+                    QString name;
+                    qint64 size = 0;
+                    
+                    if (fileObj.contains("name")) {
+                        name = fileObj["name"].toString();
+                    } else {
+                        qDebug() << "文件对象缺少name字段:" << QJsonDocument(fileObj).toJson();
+                        continue;
+                    }
+                    
+                    if (fileObj.contains("size")) {
+                        QJsonValue sizeValue = fileObj["size"];
+                        if (sizeValue.isString()) {
+                            bool ok;
+                            size = sizeValue.toString().toLongLong(&ok);
+                            if (!ok) size = 0;
+                        } else if (sizeValue.isDouble()) {
+                            size = static_cast<qint64>(sizeValue.toDouble());
+                        }
+                    }
+                    
+                    qDebug() << "添加文件:" << name << "大小:" << size;
+                    fileList.append(qMakePair(name, size));
+                } else if (value.isString()) {
+                    // 简单字符串列表
+                    QString name = value.toString();
+                    qDebug() << "添加文件(字符串):" << name;
+                    fileList.append(qMakePair(name, qint64(0)));
+                }
+            }
+        } else {
+            // 尝试解析其他格式
+            for (auto it = rootObj.begin(); it != rootObj.end(); ++it) {
+                if (it.key() != "count") {  // 跳过计数字段
+                    QString name = it.key();
+                    qint64 size = 0;
+                    
+                    if (it.value().isObject()) {
+                        QJsonObject fileObj = it.value().toObject();
+                        if (fileObj.contains("size")) {
+                            QJsonValue sizeValue = fileObj["size"];
+                            if (sizeValue.isString()) {
+                                bool ok;
+                                size = sizeValue.toString().toLongLong(&ok);
+                                if (!ok) size = 0;
+                            } else if (sizeValue.isDouble()) {
+                                size = static_cast<qint64>(sizeValue.toDouble());
+                            }
+                        }
+                    } else if (it.value().isDouble()) {
+                        size = static_cast<qint64>(it.value().toDouble());
+                    } else if (it.value().isString()) {
+                        bool ok;
+                        size = it.value().toString().toLongLong(&ok);
+                        if (!ok) size = 0;
+                    }
+                    
+                    qDebug() << "添加文件(从键值对):" << name << "大小:" << size;
+                    fileList.append(qMakePair(name, size));
+                }
+            }
+        }
+    } else if (doc.isArray()) {
+        // 文件数组格式
+        QJsonArray array = doc.array();
+        qDebug() << "JSON是数组，包含" << array.size() << "个元素";
+        
+        for (int i = 0; i < array.size(); ++i) {
+            QJsonValue value = array[i];
+            if (value.isObject()) {
+                QJsonObject fileObj = value.toObject();
+                QString name;
+                qint64 size = 0;
+                
+                if (fileObj.contains("name")) {
+                    name = fileObj["name"].toString();
+                } else {
+                    QStringList keys = fileObj.keys();
+                    if (!keys.isEmpty()) {
+                        name = keys.first(); // 使用第一个键作为文件名
+                    }
+                }
+                
+                if (fileObj.contains("size")) {
+                    QJsonValue sizeValue = fileObj["size"];
+                    if (sizeValue.isString()) {
+                        bool ok;
+                        size = sizeValue.toString().toLongLong(&ok);
+                        if (!ok) size = 0;
+                    } else if (sizeValue.isDouble()) {
+                        size = static_cast<qint64>(sizeValue.toDouble());
+                    }
+                }
+                
+                if (!name.isEmpty()) {
+                    qDebug() << "添加文件(从数组对象):" << name << "大小:" << size;
+                    fileList.append(qMakePair(name, size));
+                }
+            } else if (value.isString()) {
+                // 字符串数组
+                QString name = value.toString();
+                qDebug() << "添加文件(从数组字符串):" << name;
+                fileList.append(qMakePair(name, qint64(0)));
+            }
+        }
+    }
+    
+    // 如果通过JSON解析没找到文件，尝试解析为文本
+    if (fileList.isEmpty()) {
+        qDebug() << "JSON解析未找到文件，尝试文本格式";
+        QString text = QString::fromUtf8(listData);
+        QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+        
+        for (const QString &line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.isEmpty()) continue;
+            
+            // 可能的格式: 文件名|大小
+            int separatorPos = trimmed.lastIndexOf('|');
+            if (separatorPos > 0) {
+                QString name = trimmed.left(separatorPos).trimmed();
+                bool ok;
+                qint64 size = trimmed.mid(separatorPos + 1).trimmed().toLongLong(&ok);
+                if (!name.isEmpty()) {
+                    qDebug() << "添加文件(文本格式):" << name << "大小:" << size;
+                    fileList.append(qMakePair(name, ok ? size : 0));
+                }
+            } else {
+                // 只有文件名
+                qDebug() << "添加文件(仅名称):" << trimmed;
+                fileList.append(qMakePair(trimmed, qint64(0)));
+            }
+        }
     }
     
     qDebug() << "最终解析到" << fileList.size() << "个文件";
+    
+    // 即使没有找到文件也发送信号，让UI能够显示"没有文件"的提示
     emit fileListReceived(fileList);
 }
 

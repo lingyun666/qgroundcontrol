@@ -143,12 +143,12 @@ AnalyzePage {
                     // 2. 可用文件列表区域
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.min(fileListLayout.implicitHeight, parent.width * 0.4)
+                        Layout.preferredHeight: Math.min(ScreenTools.defaultFontPixelHeight * 27, fileListColumn.implicitHeight)
                         color: qgcPal.windowShade
                         radius: 3
 
                         ColumnLayout {
-                            id: fileListLayout
+                            id: fileListColumn
                             anchors.fill: parent
                             anchors.margins: ScreenTools.defaultFontPixelWidth
                             spacing: ScreenTools.defaultFontPixelHeight / 2
@@ -158,7 +158,7 @@ AnalyzePage {
                                 spacing: ScreenTools.defaultFontPixelWidth
 
                                 QGCLabel {
-                                    text: qsTr("可用文件列表")
+                                    text: qsTr("可用文件列表") + (controller.files.length > 0 ? " (" + controller.files.length + "个文件)" : "")
                                     font.bold: true
                                     font.pixelSize: ScreenTools.defaultFontPixelSize * 1.1
                                 }
@@ -193,103 +193,150 @@ AnalyzePage {
                                 }
                             }
 
+                            // 表头
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: headerRow.height
+                                color: qgcPal.window
+                                border.color: qgcPal.text
+                                border.width: 1
+
+                                RowLayout {
+                                    id: headerRow
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.margins: 2
+                                    height: ScreenTools.defaultFontPixelHeight * 1.5
+                                    spacing: 0
+
+                                    QGCCheckBox {
+                                        id: selectAllCheckBox
+                                        enabled: controller.files.length > 0 && !controller.downloading
+                                        Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 3
+                                        onClicked: {
+                                            if (checked) {
+                                                controller.selectAll()
+                                            } else {
+                                                controller.clearSelection()
+                                            }
+                                        }
+                                    }
+
+                                    QGCLabel { 
+                                        text: qsTr("文件名")
+                                        Layout.fillWidth: true
+                                        Layout.preferredWidth: parent.width * 0.4
+                                        horizontalAlignment: Text.AlignLeft
+                                        font.bold: true
+                                    }
+                                    
+                                    QGCLabel { 
+                                        text: qsTr("大小") 
+                                        Layout.preferredWidth: parent.width * 0.15
+                                        horizontalAlignment: Text.AlignLeft
+                                        font.bold: true
+                                    }
+                                    
+                                    QGCLabel { 
+                                        text: qsTr("状态") 
+                                        Layout.preferredWidth: parent.width * 0.15
+                                        horizontalAlignment: Text.AlignLeft
+                                        font.bold: true
+                                    }
+                                    
+                                    QGCLabel { 
+                                        text: qsTr("进度") 
+                                        Layout.preferredWidth: parent.width * 0.25
+                                        horizontalAlignment: Text.AlignLeft
+                                        font.bold: true
+                                    }
+                                }
+                            }
+
+                            // 文件列表，限制高度并支持滚动
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
+                                Layout.preferredHeight: Math.min(fileListView.contentHeight, fileListView.rowHeight * 6 + fileListView.spacing * 5)
                                 color: qgcPal.window
                                 border.color: qgcPal.text
                                 border.width: 1
                                 clip: true
 
-                                QGCFlickable {
+                                ListView {
+                                    id: fileListView
                                     anchors.fill: parent
                                     anchors.margins: 1
-                                    contentWidth: fileGrid.width
-                                    contentHeight: fileGrid.height
-                                    flickableDirection: Flickable.VerticalFlick
                                     clip: true
-
-                                    GridLayout {
-                                        id: fileGrid
-                                        width: parent.width
-                                        columns: 5
-                                        columnSpacing: ScreenTools.defaultFontPixelWidth
-                                        rowSpacing: ScreenTools.defaultFontPixelHeight / 2
-
-                                        // 标题行
-                                        QGCCheckBox {
-                                            id: selectAllCheckBox
-                                            enabled: controller.files.length > 0 && !controller.downloading
-                                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 3
-                                        }
-
-                                        QGCLabel { 
-                                            text: qsTr("文件名")
-                                            Layout.fillWidth: true
-                                            font.bold: true
-                                        }
+                                    model: controller.files
+                                    spacing: 2
+                                    
+                                    // 计算单行高度，约为1.5倍行高
+                                    property real rowHeight: ScreenTools.defaultFontPixelHeight * 1.5
+                                    
+                                    ScrollBar.vertical: ScrollBar {
+                                        active: true
+                                        policy: ScrollBar.AsNeeded
+                                    }
+                                    
+                                    delegate: Rectangle {
+                                        width: fileListView.width
+                                        height: fileListView.rowHeight
+                                        color: index % 2 === 0 ? qgcPal.window : qgcPal.windowShade
                                         
-                                        QGCLabel { 
-                                            text: qsTr("大小") 
-                                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
-                                            font.bold: true
-                                        }
-                                        
-                                        QGCLabel { 
-                                            text: qsTr("状态") 
-                                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
-                                            font.bold: true
-                                        }
-                                        
-                                        QGCLabel { 
-                                            text: qsTr("进度") 
-                                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 15
-                                            font.bold: true
-                                        }
-
-                                        // 文件列表
-                                        Repeater {
-                                            model: controller.files
-
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 2
+                                            anchors.rightMargin: 2
+                                            spacing: 0
+                                            
                                             QGCCheckBox {
                                                 enabled: !controller.downloading
                                                 checked: modelData.selected
                                                 onClicked: modelData.selected = checked
                                                 Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 3
                                             }
-                                        }
-
-                                        Repeater {
-                                            model: controller.files
+                                            
                                             QGCLabel { 
+                                                id: fileNameLabel
                                                 text: modelData.name 
                                                 Layout.fillWidth: true
+                                                Layout.preferredWidth: parent.width * 0.4
                                                 elide: Text.ElideMiddle
+                                                clip: true
                                             }
-                                        }
-
-                                        Repeater {
-                                            model: controller.files
+                                            
                                             QGCLabel { 
+                                                id: fileSizeLabel
                                                 text: modelData.sizeStr 
-                                                Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
+                                                Layout.preferredWidth: parent.width * 0.15
+                                                horizontalAlignment: Text.AlignRight
                                             }
-                                        }
-
-                                        Repeater {
-                                            model: controller.files
+                                            
                                             QGCLabel { 
+                                                id: fileStatusLabel
                                                 text: modelData.status 
-                                                Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
+                                                Layout.preferredWidth: parent.width * 0.15
+                                                horizontalAlignment: Text.AlignHCenter
+                                            }
+                                            
+                                            ProgressBar {
+                                                id: fileProgressBar
+                                                value: modelData.progress / 100
+                                                Layout.preferredWidth: parent.width * 0.25
                                             }
                                         }
-
-                                        Repeater {
-                                            model: controller.files
-                                            ProgressBar {
-                                                value: modelData.progress / 100
-                                                Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 15
-                                            }
+                                    }
+                                    
+                                    // 当没有文件时显示提示
+                                    Item {
+                                        anchors.fill: parent
+                                        visible: controller.files.length === 0
+                                        
+                                        QGCLabel {
+                                            anchors.centerIn: parent
+                                            text: controller.connected ? "没有可用文件" : "请连接服务器获取文件列表"
+                                            font.italic: true
                                         }
                                     }
                                 }
