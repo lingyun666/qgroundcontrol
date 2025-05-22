@@ -24,6 +24,10 @@ target_sources(${CMAKE_PROJECT_NAME}
         MAVLinkSystem.h
         PX4LogParser.cc
         PX4LogParser.h
+        TcpFileClient.cpp
+        TcpFileClient.h
+        TcpFileTransferController.cpp
+        TcpFileTransferController.h
         ULogParser.cc
         ULogParser.h
 )
@@ -40,6 +44,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_
 #         LogDownloadPage.qml
 #         MAVLinkConsolePage.qml
 #         MAVLinkInspectorPage.qml
+#         TcpFileTransferPage.qml
 #         VibrationPage.qml
 #     RESOURCES
 #         FloatingWindow.svg
@@ -47,6 +52,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_
 #         LogDownloadIcon.svg
 #         MAVLinkConsoleIcon.svg
 #         MAVLinkInspector.svg
+#         TcpFileTransferIcon.svg
 #         VibrationPageIcon.png
 #     OUTPUT_TARGETS AnalyzeView_targets
 #     IMPORT_PATH ${QT_QML_OUTPUT_DIRECTORY}

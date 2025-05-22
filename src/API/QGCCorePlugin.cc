@@ -83,6 +83,10 @@ const QVariantList &QGCCorePlugin::analyzePages()
             tr("Log Download"),
             QUrl::fromUserInput(QStringLiteral("qrc:/qml/LogDownloadPage.qml")),
             QUrl::fromUserInput(QStringLiteral("qrc:/qmlimages/LogDownloadIcon.svg")))),
+        QVariant::fromValue(new QmlComponentInfo(
+            tr("NX文件传输"),
+            QUrl::fromUserInput(QStringLiteral("qrc:/qml/TcpFileTransferPage.qml")),
+            QUrl::fromUserInput(QStringLiteral("qrc:/qmlimages/TcpFileTransferIcon.svg")))),
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
         QVariant::fromValue(new QmlComponentInfo(
             tr("GeoTag Images"),
