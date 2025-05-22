@@ -1,0 +1,28 @@
+IDI_ICON1 ICON DISCARDABLE "app_icon.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS 0x4
+FILETYPE 0x1
+{
+BLOCK "StringFileInfo"
+{
+    BLOCK "040904E4"
+    {
+        VALUE "CompanyName", "Your Company"
+        VALUE "FileDescription", "TCP文件传输工具"
+        VALUE "FileVersion", "0.1.0.0"
+        VALUE "InternalName", "tcp2"
+        VALUE "LegalCopyright", "(C) 2025 Your Company"
+        VALUE "OriginalFilename", "tcp2.exe"
+        VALUE "ProductName", "TCP文件传输工具"
+        VALUE "ProductVersion", "0.1.0.0"
+    }
+}
+
+BLOCK "VarFileInfo"
+{
+    VALUE "Translation", 0x409, 1252
+}
+} 

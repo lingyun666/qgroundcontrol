@@ -203,6 +203,15 @@ void TcpFileTransferController::download()
         return;
     }
     
+    // 确保下载目录存在
+    QDir dir(m_selectedFolder);
+    if (!dir.exists()) {
+        if (!dir.mkpath(".")) {
+            setErrorMessage(QString("无法创建下载目录: %1").arg(m_selectedFolder));
+            return;
+        }
+    }
+    
     // 设置状态信息
     setStatusMessage(QString("准备下载 %1 个文件...").arg(m_totalFilesToDownload));
     
@@ -215,6 +224,8 @@ void TcpFileTransferController::download()
             
             m_currentDownloadFile = fileInfo->name();
             emit currentDownloadFileChanged(m_currentDownloadFile);
+            
+            qDebug() << "尝试下载文件:" << fileInfo->name() << "到" << m_selectedFolder;
             
             if (m_client->downloadFile(fileInfo->name(), m_selectedFolder)) {
                 m_downloading = true;
@@ -261,13 +272,16 @@ bool TcpFileTransferController::openDownloadFolder()
 {
     QDir dir(m_selectedFolder);
     if (!dir.exists()) {
-        setErrorMessage(QString("目录不存在: %1").arg(m_selectedFolder));
-        return false;
+        // 尝试创建目录
+        if (!dir.mkpath(".")) {
+            setErrorMessage(QString("无法创建目录: %1").arg(m_selectedFolder));
+            return false;
+        }
     }
     
     bool success = QDesktopServices::openUrl(QUrl::fromLocalFile(m_selectedFolder));
     if (!success) {
-        setErrorMessage("无法打开下载目录");
+        setErrorMessage(QString("无法打开下载目录: %1").arg(m_selectedFolder));
     }
     
     return success;
@@ -303,10 +317,13 @@ void TcpFileTransferController::onFileListReceived(const QList<QPair<QString, qi
     
     emit filesChanged();
     
-    if (fileList.isEmpty()) {
+    // 确保显示的文件数量准确
+    int fileCount = fileList.size();
+    
+    if (fileCount <= 0) {
         setStatusMessage("服务器上没有可用文件");
     } else {
-        setStatusMessage(QString("获取到 %1 个文件").arg(fileList.size()));
+        setStatusMessage(QString("获取到 %1 个文件").arg(fileCount));
     }
     
     // 确保在此处不会断开连接

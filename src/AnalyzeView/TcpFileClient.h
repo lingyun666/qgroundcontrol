@@ -60,7 +60,7 @@ public:
     
     // 命令常量
     static const QByteArray CMD_LIST;  // "LIST"命令用于请求文件列表
-    static const QByteArray CMD_GET;   // "GET "命令用于请求下载文件
+    static const QByteArray CMD_GET;   // "GET"命令用于请求下载文件（不带空格）
     
 signals:
     /**

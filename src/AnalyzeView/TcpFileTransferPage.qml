@@ -380,51 +380,57 @@ AnalyzePage {
 
                     // 5. 调试信息区域
                     Rectangle {
+                        id: debugArea
                         Layout.fillWidth: true
-                        Layout.preferredHeight: debugInfoLayout.implicitHeight + ScreenTools.defaultFontPixelHeight
-                        color: qgcPal.windowShade
-                        radius: 3
-
+                        Layout.preferredHeight: debugLayout.height + 16
+                        color: Qt.rgba(0, 0, 0, 0.1)
+                        border.color: Qt.rgba(0, 0, 0, 0.2)
+                        border.width: 1
+                        radius: 4
+                        
                         ColumnLayout {
-                            id: debugInfoLayout
-                            anchors.fill: parent
-                            anchors.margins: ScreenTools.defaultFontPixelWidth
-                            spacing: ScreenTools.defaultFontPixelHeight / 2
-
+                            id: debugLayout
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 8
+                            spacing: 4
+                            
                             QGCLabel {
-                                Layout.fillWidth: true
-                                text: qsTr("调试信息")
+                                text: "调试信息"
                                 font.bold: true
-                                font.pixelSize: ScreenTools.defaultFontPixelSize * 1.1
                             }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 6
-                                color: qgcPal.window
-                                border.color: qgcPal.text
-                                border.width: 1
-
-                                QGCFlickable {
-                                    anchors.fill: parent
-                                    anchors.margins: 1
-                                    contentWidth: width
-                                    contentHeight: debugText.height
-                                    flickableDirection: Flickable.VerticalFlick
-                                    clip: true
-
-                                    QGCLabel {
-                                        id: debugText
-                                        width: parent.width
-                                        wrapMode: Text.WordWrap
-                                        text: qsTr("连接状态: ") + (controller.connected ? qsTr("已连接") : qsTr("未连接")) + "\n" +
-                                              qsTr("服务器地址: ") + controller.serverAddress + ":" + controller.serverPort + "\n" +
-                                              qsTr("保存目录: ") + controller.selectedFolder + "\n" +
-                                              (controller.downloading ? 
-                                                qsTr("正在下载: ") + controller.currentDownloadFile + " (" + controller.overallProgress + "%)" :
-                                                qsTr("状态: ") + controller.statusMessage)
-                                    }
-                                }
+                            
+                            QGCLabel {
+                                text: "连接状态: " + (controller.connected ? "已连接" : "未连接")
+                            }
+                            
+                            QGCLabel {
+                                text: "服务器: " + controller.serverAddress + ":" + controller.serverPort
+                            }
+                            
+                            QGCLabel {
+                                text: "保存目录: " + controller.selectedFolder
+                            }
+                            
+                            QGCLabel {
+                                visible: controller.errorMessage !== ""
+                                text: "错误: " + controller.errorMessage
+                                color: "red"
+                            }
+                            
+                            QGCLabel {
+                                text: "状态: " + controller.statusMessage
+                            }
+                            
+                            QGCLabel {
+                                visible: controller.currentDownloadFile !== ""
+                                text: "当前下载: " + controller.currentDownloadFile + " (" + controller.overallProgress + "%)"
+                            }
+                            
+                            QGCLabel {
+                                visible: controller.files.length > 0
+                                text: "可用文件数: " + controller.files.length
                             }
                         }
                     }

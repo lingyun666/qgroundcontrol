@@ -7,9 +7,9 @@
 #include <QDir>
 #include <QDataStream>
 
-// 命令常量定义
+// 命令常量定义 - 必须与服务器端定义一致
 const QByteArray TcpFileClient::CMD_LIST = "LIST";
-const QByteArray TcpFileClient::CMD_GET = "GET ";
+const QByteArray TcpFileClient::CMD_GET = "GET";
 
 TcpFileClient::TcpFileClient(QObject *parent)
     : QObject(parent)
@@ -92,6 +92,7 @@ void TcpFileClient::requestFileList()
     
     // 发送列表请求命令
     m_socket->write(CMD_LIST);
+    m_socket->flush();
 }
 
 bool TcpFileClient::downloadFile(const QString &fileName, const QString &savePath)
@@ -131,9 +132,11 @@ bool TcpFileClient::downloadFile(const QString &fileName, const QString &savePat
     m_receivingHeader = true;
     m_headerBuffer.clear();
     
-    // 发送下载请求命令
-    QByteArray command = CMD_GET + fileName.toUtf8();
+    // 发送下载请求命令 - 格式必须为: "GET 文件名"，与服务器parseCommand匹配
+    QByteArray command = CMD_GET + " " + fileName.toUtf8();
+    qDebug() << "发送命令:" << command;
     m_socket->write(command);
+    m_socket->flush();
     
     return true;
 }
@@ -170,30 +173,29 @@ void TcpFileClient::onReadyRead()
         m_fileListBuffer.append(m_socket->readAll());
         
         // 检查是否接收到完整的数据
-        // 注意：这里不再自动调用processFileList并重置m_receivingFileList标志
-        // 而是保留接收状态，直到接收完全部数据
         if (m_socket->bytesAvailable() <= 0) {
+            qDebug() << "文件列表数据接收完成，数据大小:" << m_fileListBuffer.size() << "字节";
             processFileList(m_fileListBuffer);
+            m_fileListBuffer.clear();
             m_receivingFileList = false;
         }
         return;
     }
     
     if (m_receivingHeader) {
-        // 接收文件头信息，格式为JSON
+        // 接收文件头信息，服务器使用固定大小的头部
+        static const int HEADER_SIZE = 1024; // 从服务器代码看，头部大小是1024字节
+        
         m_headerBuffer.append(m_socket->readAll());
         
-        // 查找头部结束标志
-        int endPos = m_headerBuffer.indexOf("\r\n\r\n");
-        if (endPos != -1) {
-            // 处理头部信息
-            QByteArray header = m_headerBuffer.left(endPos);
-            processFileHeader(header);
+        if (m_headerBuffer.size() >= HEADER_SIZE) {
+            // 读取完整的头部
+            processFileHeader(m_headerBuffer.left(HEADER_SIZE));
             
             // 保存剩余的数据
-            QByteArray remainingData = m_headerBuffer.mid(endPos + 4); // 4是\r\n\r\n的长度
-            m_receivingHeader = false;
+            QByteArray remainingData = m_headerBuffer.mid(HEADER_SIZE);
             m_headerBuffer.clear();
+            m_receivingHeader = false;
             
             // 如果有剩余数据，处理文件内容
             if (!remainingData.isEmpty()) {
@@ -230,9 +232,20 @@ void TcpFileClient::onReadyRead()
         }
     } else {
         // 未处于任何接收状态，但收到了数据，可能是服务器主动发送的消息
-        // 读取并丢弃数据，避免缓冲区堆积
-        m_socket->readAll();
-        qDebug() << "收到未预期的数据，已丢弃";
+        QByteArray data = m_socket->readAll();
+        qDebug() << "收到未预期的数据:" << data.size() << "字节";
+        
+        // 尝试解析为JSON，可能是错误消息
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+            QJsonObject obj = doc.object();
+            if (obj.contains("error")) {
+                QString errorMsg = obj["error"].toString();
+                qDebug() << "服务器返回错误:" << errorMsg;
+                emit error(errorMsg);
+            }
+        }
     }
 }
 
@@ -280,44 +293,45 @@ void TcpFileClient::onError(QAbstractSocket::SocketError socketError)
 
 void TcpFileClient::processFileHeader(const QByteArray &headerData)
 {
-    qDebug() << "处理文件头信息:" << headerData;
+    qDebug() << "处理文件头信息，大小:" << headerData.size() << "字节";
+    
+    // 根据服务器的实现，解析头部数据
+    // 头部的前4个字节是JSON数据的长度
+    QDataStream stream(headerData);
+    stream.setVersion(QDataStream::Qt_6_0);
+    
+    qint32 jsonSize = 0;
+    stream >> jsonSize;
+    
+    if (jsonSize <= 0 || jsonSize > headerData.size() - 4) {
+        qDebug() << "无效的JSON大小:" << jsonSize;
+        return;
+    }
+    
+    QByteArray jsonData = headerData.mid(4, jsonSize);
     
     QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(headerData, &parseError);
+    QJsonDocument doc = QJsonDocument::fromJson(jsonData, &parseError);
     
     if (parseError.error != QJsonParseError::NoError) {
         qDebug() << "解析JSON头部失败:" << parseError.errorString();
-        
-        // 尝试直接解析简单的头部格式
-        QString headerStr = QString::fromUtf8(headerData);
-        QStringList lines = headerStr.split("\r\n");
-        
-        for (const QString &line : lines) {
-            if (line.startsWith("Content-Length:")) {
-                bool ok;
-                m_fileSize = line.mid(15).trimmed().toLongLong(&ok);
-                if (ok) {
-                    qDebug() << "文件大小:" << m_fileSize;
-                }
-                break;
-            }
-        }
-        
         return;
     }
     
     QJsonObject headerObj = doc.object();
+    qDebug() << "文件头JSON:" << headerObj;
     
     // 获取文件大小
-    if (headerObj.contains("size") || headerObj.contains("fileSize") || headerObj.contains("contentLength")) {
-        if (headerObj.contains("size")) {
-            m_fileSize = headerObj["size"].toVariant().toLongLong();
-        } else if (headerObj.contains("fileSize")) {
-            m_fileSize = headerObj["fileSize"].toVariant().toLongLong();
+    if (headerObj.contains("fileSize")) {
+        QString fileSizeStr = headerObj["fileSize"].toString();
+        bool ok;
+        m_fileSize = fileSizeStr.toLongLong(&ok);
+        if (ok) {
+            qDebug() << "文件大小:" << m_fileSize;
         } else {
-            m_fileSize = headerObj["contentLength"].toVariant().toLongLong();
+            qDebug() << "无法解析文件大小:" << fileSizeStr;
+            m_fileSize = 0;
         }
-        qDebug() << "文件大小:" << m_fileSize;
     } else {
         qDebug() << "警告: 头部中未找到文件大小信息";
         m_fileSize = 0;
@@ -326,130 +340,83 @@ void TcpFileClient::processFileHeader(const QByteArray &headerData)
 
 void TcpFileClient::processFileList(const QByteArray &listData)
 {
-    qDebug() << "处理文件列表数据:" << listData;
+    qDebug() << "处理文件列表数据:" << listData.size() << "字节";
     
     QList<QPair<QString, qint64>> fileList;
     
-    // 首先尝试解析为JSON格式
+    // 根据服务器的实现，文件列表是一个JSON对象
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(listData, &parseError);
     
-    if (parseError.error == QJsonParseError::NoError) {
-        qDebug() << "成功解析为JSON格式";
-        if (doc.isArray()) {
-            QJsonArray filesArray = doc.array();
-            qDebug() << "JSON是数组，包含" << filesArray.size() << "个元素";
-            
-            for (const QJsonValue &value : filesArray) {
-                if (value.isObject()) {
-                    QJsonObject fileObj = value.toObject();
-                    QString name;
-                    qint64 size = 0;
-                    
-                    if (fileObj.contains("name")) {
-                        name = fileObj["name"].toString();
-                    } else if (fileObj.contains("fileName")) {
-                        name = fileObj["fileName"].toString();
-                    }
-                    
-                    if (fileObj.contains("size")) {
-                        size = fileObj["size"].toVariant().toLongLong();
-                    } else if (fileObj.contains("fileSize")) {
-                        size = fileObj["fileSize"].toVariant().toLongLong();
-                    }
-                    
-                    if (!name.isEmpty()) {
-                        qDebug() << "添加文件:" << name << "大小:" << size;
-                        fileList.append(qMakePair(name, size));
-                    }
-                }
-            }
-        } else if (doc.isObject()) {
-            // 可能是包含files数组的对象
-            QJsonObject rootObj = doc.object();
-            qDebug() << "JSON是对象，键:" << rootObj.keys();
-            
-            if (rootObj.contains("files") && rootObj["files"].isArray()) {
-                QJsonArray filesArray = rootObj["files"].toArray();
-                qDebug() << "files数组包含" << filesArray.size() << "个元素";
-                
-                for (const QJsonValue &value : filesArray) {
-                    if (value.isObject()) {
-                        QJsonObject fileObj = value.toObject();
-                        QString name;
-                        qint64 size = 0;
-                        
-                        if (fileObj.contains("name")) {
-                            name = fileObj["name"].toString();
-                        } else if (fileObj.contains("fileName")) {
-                            name = fileObj["fileName"].toString();
-                        }
-                        
-                        if (fileObj.contains("size")) {
-                            size = fileObj["size"].toVariant().toLongLong();
-                        } else if (fileObj.contains("fileSize")) {
-                            size = fileObj["fileSize"].toVariant().toLongLong();
-                        }
-                        
-                        if (!name.isEmpty()) {
-                            qDebug() << "添加文件:" << name << "大小:" << size;
-                            fileList.append(qMakePair(name, size));
-                        }
-                    } else if (value.isString()) {
-                        // 简单字符串列表
-                        QString name = value.toString();
-                        qDebug() << "添加文件(字符串):" << name;
-                        fileList.append(qMakePair(name, qint64(0)));
-                    }
-                }
-            }
-        }
-    } else {
-        qDebug() << "JSON解析失败:" << parseError.errorString() << "，尝试解析为文本格式";
-        // 尝试解析为简单的文本格式，每行一个文件
-        QString listStr = QString::fromUtf8(listData);
-        QStringList lines = listStr.split("\n", Qt::SkipEmptyParts);
+    if (parseError.error != QJsonParseError::NoError) {
+        qDebug() << "解析文件列表JSON失败:" << parseError.errorString();
+        emit error("解析文件列表失败");
+        return;
+    }
+    
+    if (!doc.isObject()) {
+        qDebug() << "文件列表不是一个JSON对象";
+        emit error("文件列表格式错误");
+        return;
+    }
+    
+    QJsonObject rootObj = doc.object();
+    
+    // 调试输出完整的JSON结构
+    QString jsonStr = QString::fromUtf8(doc.toJson());
+    qDebug() << "文件列表JSON:" << jsonStr.left(1000) << (jsonStr.length() > 1000 ? "..." : "");
+    
+    // 检查文件计数
+    int fileCount = 0;
+    if (rootObj.contains("count")) {
+        fileCount = rootObj["count"].toInt();
+        qDebug() << "服务器报告的文件数量:" << fileCount;
+    }
+    
+    if (rootObj.contains("files") && rootObj["files"].isArray()) {
+        QJsonArray filesArray = rootObj["files"].toArray();
+        qDebug() << "解析到的文件数组大小:" << filesArray.size();
         
-        qDebug() << "文本格式，包含" << lines.size() << "行";
-        
-        for (const QString &line : lines) {
-            QString trimmedLine = line.trimmed();
-            if (trimmedLine.isEmpty()) {
+        for (int i = 0; i < filesArray.size(); i++) {
+            QJsonValue value = filesArray[i];
+            if (!value.isObject()) {
+                qDebug() << "跳过非对象元素:" << i;
                 continue;
             }
             
-            // 尝试解析格式: 文件名|大小
-            int separatorPos = trimmedLine.lastIndexOf('|');
-            if (separatorPos > 0) {
-                QString name = trimmedLine.left(separatorPos).trimmed();
-                bool ok;
-                qint64 size = trimmedLine.mid(separatorPos + 1).trimmed().toLongLong(&ok);
-                
-                if (!name.isEmpty()) {
-                    qDebug() << "添加文件(带分隔符):" << name << "大小:" << size;
-                    fileList.append(qMakePair(name, ok ? size : 0));
-                }
+            QJsonObject fileObj = value.toObject();
+            QString name;
+            qint64 size = 0;
+            
+            if (fileObj.contains("name")) {
+                name = fileObj["name"].toString();
             } else {
-                // 仅有文件名
-                qDebug() << "添加文件(仅名称):" << trimmedLine;
-                fileList.append(qMakePair(trimmedLine, qint64(0)));
+                qDebug() << "文件对象缺少name字段:" << fileObj;
+                continue;
+            }
+            
+            if (fileObj.contains("size")) {
+                QString sizeStr = fileObj["size"].toString();
+                bool ok;
+                size = sizeStr.toLongLong(&ok);
+                if (!ok) {
+                    qDebug() << "无法解析文件大小:" << sizeStr;
+                    size = 0;
+                }
+            }
+            
+            if (!name.isEmpty()) {
+                qDebug() << "添加文件:" << name << "大小:" << size;
+                fileList.append(qMakePair(name, size));
             }
         }
+    } else {
+        qDebug() << "文件列表JSON中没有找到files数组";
+        emit error("文件列表格式错误");
+        return;
     }
     
-    qDebug() << "解析到" << fileList.size() << "个文件";
-    
-    // 输出原始数据的十六进制和ASCII表示，用于调试
-    QString hexDump;
-    QString asciiDump;
-    for (int i = 0; i < qMin(listData.size(), 200); ++i) {
-        unsigned char c = static_cast<unsigned char>(listData[i]);
-        hexDump += QString("%1 ").arg(c, 2, 16, QChar('0'));
-        asciiDump += (c >= 32 && c <= 126) ? QChar(c) : '.';
-    }
-    qDebug() << "原始数据前200字节(Hex):" << hexDump;
-    qDebug() << "原始数据前200字节(ASCII):" << asciiDump;
-    
+    qDebug() << "最终解析到" << fileList.size() << "个文件";
     emit fileListReceived(fileList);
 }
 
