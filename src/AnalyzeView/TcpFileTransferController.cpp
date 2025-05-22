@@ -8,7 +8,7 @@
 #include <QTimer>
 
 // 静态常量定义
-const QString TcpFileTransferController::DEFAULT_SERVER_ADDRESS = "192.168.1.10";
+const QString TcpFileTransferController::DEFAULT_SERVER_ADDRESS = "192.168.144.111";
 
 // 文件信息类实现
 FileInfo::FileInfo(const QString &name, qint64 size, QObject *parent)

@@ -420,13 +420,13 @@ AnalyzePage {
                                     elide: Text.ElideMiddle
                                 }
 
-                                QGCButton {
-                                    text: qsTr("打开目录")
-                                    Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
-                                    onClicked: {
-                                        controller.openDownloadFolder()
-                                    }
-                                }
+                              //  QGCButton {
+                              //      text: qsTr("打开目录")
+                              //      Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 10
+                              //      onClicked: {
+                              //          controller.openDownloadFolder()
+                              //      }
+                              //  }
                             }
                         }
                     }
