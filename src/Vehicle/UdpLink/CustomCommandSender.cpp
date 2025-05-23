@@ -11,8 +11,8 @@
 #include <QDebug>
 
 // 默认网络配置
-// const QString DEFAULT_REMOTE_HOST = "192.168.144.111";
-const QString DEFAULT_REMOTE_HOST = "127.0.0.1";
+const QString DEFAULT_REMOTE_HOST = "192.168.144.111";
+//const QString DEFAULT_REMOTE_HOST = "127.0.0.1";
 const quint16 DEFAULT_REMOTE_PORT = 8888;
 const quint16 DEFAULT_LOCAL_PORT = 4560;
 
